@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block content %}<section class="panel narrow"><div class="eyebrow">LIVE SUPPORT // CONSENT REQUIRED</div><h2>SCREEN SHARE SESSION</h2><p>This session shares only the screen you explicitly select in your browser. The viewer can see what you share. You can stop at any time. No phone-control feature is provided.</p>
+{% if owner_view %}<div id="viewer"><video id="remote" autoplay playsinline class="video"></video></div><button id="joinViewer" class="btn primary">JOIN AS OWNER VIEWER</button>
+{% else %}<p class="warning">Continue karne par browser ka native screen-share permission dialog khulega. Share start hone se pehle tumhe screen/window/tab choose karna hoga.</p><button id="start" class="btn primary">CONTINUE & START SCREEN SHARE</button><button id="stop" class="btn danger" disabled>STOP SHARING</button><video id="local" autoplay muted playsinline class="video"></video>{% endif %}
+<p id="status" class="muted">Session ready.</p></section>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script><script>
+const token={{ token|tojson }}, socket=io(), statusEl=document.getElementById('status');
+let pc, stream;
+const config={iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+function setup(){pc=new RTCPeerConnection(config);pc.onicecandidate=e=>{if(e.candidate)socket.emit('signal',{token,candidate:e.candidate})};pc.ontrack=e=>{const v=document.getElementById('remote');if(v)v.srcObject=e.streams[0]};}
+socket.on('signal',async d=>{if(!pc)setup();if(d.description){await pc.setRemoteDescription(d.description);if(d.description.type==='offer'){const a=await pc.createAnswer();await pc.setLocalDescription(a);socket.emit('signal',{token,description:pc.localDescription})}}else if(d.candidate){try{await pc.addIceCandidate(d.candidate)}catch(e){}}});
+socket.on('share_error',d=>statusEl.textContent=d.message);
+socket.on('session_stopped',()=>{if(stream)stream.getTracks().forEach(t=>t.stop());if(pc)pc.close();statusEl.textContent='Session stopped.';});
+const start=document.getElementById('start');
+if(start){start.onclick=async()=>{try{stream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false});document.getElementById('local').srcObject=stream;setup();stream.getTracks().forEach(t=>pc.addTrack(t,stream));socket.emit('join_share',{token,role:'sharer'});const offer=await pc.createOffer();await pc.setLocalDescription(offer);socket.emit('signal',{token,description:pc.localDescription});start.disabled=true;document.getElementById('stop').disabled=false;statusEl.textContent='Sharing is active. Use STOP to end.';stream.getVideoTracks()[0].onended=stopNow;}catch(e){statusEl.textContent='Screen sharing cancelled or unavailable.'}};}
+async function stopNow(){if(stream)stream.getTracks().forEach(t=>t.stop());if(pc)pc.close();await fetch('/share/'+token+'/stop',{method:'POST'});const b=document.getElementById('stop');if(b)b.disabled=true;statusEl.textContent='Sharing stopped.';}
+const stop=document.getElementById('stop');if(stop)stop.onclick=stopNow;
+const join=document.getElementById('joinViewer');if(join){join.onclick=()=>{setup();socket.emit('join_share',{token,role:'viewer'});statusEl.textContent='Waiting for participant to start sharing.'};}
+</script>{% endblock %}
